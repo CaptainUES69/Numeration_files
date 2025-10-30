@@ -3,7 +3,7 @@ import tempfile, os, csv
 from main import read_data, clean_filename, range_of_numbers, group_by_operator
 
 
-class test_main(unittest.TestCase):
+class TestMain(unittest.TestCase):
     
     def test_read_data(self):
         # arrange
