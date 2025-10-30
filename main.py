@@ -22,15 +22,17 @@ def main():
 
     group_by_operator(all_data)
 
-def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.csv") -> None:
+def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.csv", filename: str = "data.csv") -> str | None:
     req = requests.get(url)
 
     with open("data.csv", "wb") as file:
         file.write(req.content)
-
-def read_data(path: str):
+    
+        return file.name
+        
+def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]):
     with open(path, 'r', encoding="utf-8-sig") as file:
-        columns = [0, 1, 2, 4, 7] # Отмечаем нужные столбцы в данном случае: abc/ def, от, до, оператор, ИНН
+        # Отмечаем нужные столбцы, по дефолту: abc/ def, от, до, оператор, ИНН [0, 1, 2, 4, 7]
         reader = csv.reader(file, delimiter = ";")
         next(reader)
 
@@ -41,7 +43,7 @@ def clean_filename(filename: str) -> str:
     forbidden_chars = '<>:"/\\|?*'
 
     for char in forbidden_chars:
-        filename = filename.replace(char, '_')
+        filename = filename.replace(char, '')
 
     filename = filename.replace('"', '').replace(' ', '_')
 

@@ -8,4 +8,4 @@ RUN pip install -r requirements.txt
 
 VOLUME ["/app/operators"]
 
-CMD [ "python", "main.py" ]
+CMD [ "python", "src/main.py" ]
