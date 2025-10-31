@@ -1,10 +1,12 @@
 import unittest
-import tempfile, os, csv
+
+import tempfile, os, csv, shutil
 from main import read_data, clean_filename, range_of_numbers, group_by_operator
+
+from cfg import SkipError
 
 
 class TestMain(unittest.TestCase):
-    
     def test_read_data(self):
         # arrange
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -75,23 +77,21 @@ class TestMain(unittest.TestCase):
             ['_[78]93377[6-7]XXXX', 'ООО "ТЕСТ 3"', '3333333333'],
             ['_[78]933820555', 'ООО "ТЕСТ 3"', '3333333333']
         ]
-
+    
         expected = ['_[78]93377[6-7]XXXX', '_[78]933820555']
 
         # act
         with tempfile.TemporaryDirectory() as temp_dir:
-            group_by_operator(test_data, temp_dir)
+            for data in test_data:
+                group_by_operator(data, temp_dir)
             
             content: str
             files = os.listdir(temp_dir)
-            try:
-                with open(os.path.join(temp_dir, 'ООО_ТЕСТ_3.conf'), 'r') as f:
-                    content = f.read()
-                    for i in expected:
-                        self.assertIn(i, content)
 
-            except FileNotFoundError:
-                ...
+            with open(os.path.join(temp_dir, 'ООО_ТЕСТ_3.conf'), 'r') as f:
+                content = f.read()
+                for i in expected:
+                    self.assertIn(i, content)
 
             # assert
             self.assertEqual(len(files), 3)

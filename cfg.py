@@ -2,6 +2,12 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 
+class CriticalError(BaseException):
+    ...
+
+class WarningError(BaseException):
+    ...
+
 class SkipError(BaseException):
     ...
 

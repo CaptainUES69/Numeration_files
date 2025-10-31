@@ -1,54 +1,73 @@
-import csv, os
-from collections import defaultdict
+import csv, os, shutil
 import requests
-from cfg import logger, SkipError
+
+from requests.exceptions import ConnectionError, Timeout
+from collections import defaultdict
+from cfg import logger, SkipError, WarningError, CriticalError
 
 
-def main():
-    all_data = []
+def main(filename: str = "data.csv"):
+    try:
+        if os.path.exists("operators"):
+            shutil.rmtree("operators")
 
-    test = read_data("data.csv")
-    for data in test:
-        try:
-            result = range_of_numbers(data[0], data[1], data[2], data[3], data[4])
+        file = download_data(filename = filename)
+        # file = "DEF-9xx.csv"
+        all_data = []
+        test = read_data(file)
 
-        except SkipError as e:
-            logger.error(f"Error while processing data: {data[0], data[1], data[2], data[3], data[4]}", exc_info = True)
-            continue
-        all_data.extend(result)
+        for data in test:
+            try:
+                result = range_of_numbers(data[0], data[1], data[2], data[3], data[4])
+                all_data.extend(result)
 
-    group_by_operator(all_data)
+            except SkipError: # Продолжаем т.к. ошибка произошла в одном конкретном случае
+                logger.error(f"Error while processing data: {data[0], data[1], data[2], data[3], data[4]}", exc_info = True)
+                continue
+        
+        for data in all_data:
+            try:
+                group_by_operator(data)
+
+            except SkipError:
+                logger.error(f"Error while proccesing data: {data[0], data[1], data[2]}", exc_info = True)
+                continue
+
+    except CriticalError:
+        raise # Прерываем выполнение если произошла критическая ошибка
+
+    finally:
+        if os.path.exists(filename):
+            os.remove(filename)
 
 def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.csv", filename: str = "data.csv") -> str | None:
     try:
-        logger.info("Requesting data...")
-        req = requests.get(url)
+        # Добавляем таймаут для избежания долгого ожидания
+        req = requests.get(url, timeout=10)
+        req.raise_for_status()  # Проверяем HTTP статус (4xx, 5xx ошибки)
 
-        with open("data.csv", "wb") as file:
-            logger.info("Write data in .csv file...")
+        with open(filename, "wb") as file:
             file.write(req.content)
         
-            return file.name
+        return filename
 
-    except TimeoutError:
-        logger.warning(f"Timeout error, trying read downloaded manualy file")
-        return "DEF-9xx.csv" # Используем дефолтное название на тот случай если файл уже есть локально
+    except ConnectionError as e:
+        if os.path.exists("DEF-9xx.csv"):
+            return "DEF-9xx.csv"
+        else:
+            logger.critical(f"ConnectionError {e}")
+            raise CriticalError from e
     
-    except ConnectionError:
-        logger.warning(f"Connection error, trying read downloaded manualy file")
-        return "DEF-9xx.csv" # Используем дефолтное название на тот случай если файл уже есть локально
+    except Timeout as e:
+        if os.path.exists("DEF-9xx.csv"):
+            return "DEF-9xx.csv"
+        else:
+            logger.critical(f"TimeoutError {e}")
+            raise CriticalError from e
 
-    except IOError:
-        logger.error(f"Can`t write file {filename}, check accessability")
-        raise IOError.add_note(f"Error while proccesing {__name__}")
-
-    except PermissionError:
-        logger.error(f"Can`t access to file {filename}, check access rights, and no other proccess using file {filename}")
-        raise PermissionError
-    
-    except Exception:
-        logger.critical(f"Unknown Error while proccesing {__name__}")
-        raise Exception.add_note(f"Unknown Error while proccesing {__name__}")
+    except Exception as e:
+        logger.critical(f"Unknown Exception {e}", exc_info = True)
+        raise CriticalError from e
         
 def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]):
     try:
@@ -61,38 +80,9 @@ def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]):
             for row in reader:
                 yield list(row[i] for i in columns)
     
-    except IOError:
-        logger.error(f"Can`t read file on path: {path}, check accessability")
-        raise IOError.add_note(f"Error while proccesing {__name__}")
-    
-    except FileNotFoundError:
-        logger.critical(f"File doesn`t exist check filename or path")
-        raise FileNotFoundError
-    
-    except Exception:
-        logger.critical(f"Unknown Error while proccesing {__name__}")
-        raise Exception.add_note(f"Unknown Error while proccesing {__name__}")
-
-def clean_filename(filename: str) -> str:
-    try:
-        forbidden_chars = '<>:"/\\|?*'
-        
-        logger.info("Deleting chars")
-        for char in forbidden_chars:
-            filename = filename.replace(char, '')
-
-        filename = filename.replace('"', '').replace(' ', '_')
-
-        logger.debug(f"{filename=}")
-        return filename
-    
-    except TypeError:
-        logger.error("Error in filename type")
-        raise TypeError
-    
-    except Exception:
-        logger.critical(f"Unknown Error while proccesing {__name__}")
-        raise Exception.add_note(f"Unknown Error while proccesing {__name__}")
+    except IOError as e:
+        logger.critical(f"Can`t read file on path: {path}, check accessability", exc_info = True)
+        raise CriticalError from e
 
 def range_of_numbers(def_code: str, start_input: str, end_input: str, operator_name: str, inn: str) -> list[list[str]] | list[str]:
     try:
@@ -184,84 +174,108 @@ def range_of_numbers(def_code: str, start_input: str, end_input: str, operator_n
         logger.debug(f"{result=}")
         return result
     
-    except AttributeError:
-        logger.warning(f"Value doesn`t have attribute: {e}")
+    except Exception as e:
         raise SkipError from e
 
-    except ValueError as e:
-        logger.warning(f"Invalid value: {e}")
-        raise SkipError from e
-    
-    except IndexError as e:
-        logger.warning(f"Index error: {e}")
-        raise SkipError from e
-
-    except TypeError as e:
-        logger.warning(f"Invalid type of variable {e}")
-        raise SkipError from e
-
-    except Exception:
-        logger.critical(f"Unknown Error while proccesing {__name__}")
-        raise Exception.add_note(f"Unknown Error while proccesing {__name__}")
-
-def group_by_operator(all_data: list, output_dir_name: str = "operators") -> None:
+def clean_filename(filename: str) -> str:
     try:
-        logger.info("Starting grouping")
+        forbidden_chars = '<>:"/\\|?*'
+        
+        for char in forbidden_chars:
+            filename = filename.replace(char, '')
+
+        filename_clean = filename.replace('"', '').replace(' ', '_')
+
+        logger.debug(f"{filename=} {filename_clean=}")
+        return filename_clean
+    
+    except TypeError:
+        logger.error(f"Error in filename type {filename}")
+        raise WarningError
+    
+    except Exception:
+        logger.critical(f"Unknown Error while proccesing clean_filename", exc_info = True)
+        raise CriticalError
+
+def group_by_operator(data: list, output_dir_name: str = "operators") -> None:
+    try:
         os.makedirs(output_dir_name, exist_ok=True)
 
         grouped = defaultdict(list)
+        pattern, operator, inn = str(data[0]), str(data[1]), str(data[2])
         
-        for data in all_data:
-            logger.debug(f"{data=}")
-            if len(data) != 3: # Если данных меньше чем 3 (паттерн, оператор, ИНН)
-                logger.debug(f"Пропущены некорректные данные: {data}")
-                continue
-                
-            pattern, operator, inn = str(data[0]), str(data[1]), str(data[2])
+        logger.debug(f"{data=}")
+        logger.debug(f"{pattern=}, {operator=}, {inn=}")
+        if len(data) != 3: # Если данных меньше чем 3 (паттерн, оператор, ИНН)
+            logger.warning(f"Пропущены некорректные данные: {data}")
+            return None
+        
+        if not pattern.startswith("_[78]"): # Если паттерн неккоректно обработан и начинается не с _[78]
+            logger.warning(f"Пропущен некорректный шаблон: {pattern=}")
+            return None
+
+        if not operator or len(operator.strip()) < 2: # Слишком короткое имя оператора 
+            logger.warning(f"Пропущено некорректное имя оператора: {operator=}")
+            return None
+
+        if len(inn) < 10 or len(inn) > 10:
+            logger.warning(f"Пропущено неккоректный ИНН оператора: {inn=}")
+            return None
             
-            if not pattern.startswith("_[78]"): # Если паттерн неккоректно обработан и начинается не с _[78]
-                logger.debug(f"Пропущен некорректный шаблон: {pattern=}")
-                continue
-
-            if not operator or len(operator.strip()) < 2: # Слишком короткое имя оператора 
-                logger.debug(f"Пропущено некорректное имя оператора: {operator=}")
-                continue
-
-            if inn < 10 or inn > 10:
-                logger.debug(f"Пропущено неккоректный ИНН оператора: {inn=}")
-                continue
-                
-            grouped[inn].append({
-                "pattern": pattern,
-                "operator": operator
-            })
+        grouped[inn].append({
+            "pattern": pattern,
+            "operator": operator
+        })
         logger.debug(f"Final grouping {grouped=}")
 
         for inn, patterns_data in grouped.items():
             operator_name = patterns_data[0]['operator']
 
-            filename = f"{clean_filename(operator_name)}.conf"
-            filepath = os.path.join(output_dir_name, filename)
-            logger.debug(f"{filepath=} ___ {filename=}")    
+            try:
+                filename = f"{clean_filename(operator_name)}.conf"
 
-            patterns = [item['pattern'] for item in patterns_data]
+            except WarningError:
+                filename = f"{inn}.conf"
+            
+            except CriticalError: 
+                raise
+            
+            else:
+                filepath = os.path.join(output_dir_name, filename)
+                logger.debug(f"{filepath=} ___ {filename=}")    
 
-            logger.info(f"Writing data in file: {filename}...")
-            with open(filepath, 'w', encoding='utf-8') as f:
-                for pattern in patterns:
-                    logger.debug(f'Writing {pattern=} in {filename}')
-                    f.write(f"exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n")
+                patterns = [item['pattern'] for item in patterns_data]
+    
+                with open(filepath, 'a', encoding='utf-8') as f:
+                    for pattern in patterns:
+                        logger.debug(f'Writing {pattern=} in {filename}')
+                        f.write(f"exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n")
 
-    except:
-        ...
+    except IndexError as e:
+        logger.warning(f"IndexError while proccesing group_by_operator")
+        raise SkipError from e
+    
+    except TypeError as e:
+        logger.warning(f"TypeError while proccesing group_by_operator")
+        raise SkipError from e 
+    
+    except AttributeError as e:
+        logger.warning(f"AttributeError while proccesing group_by_operator")
+        raise SkipError from e
+    
+    except OSError as e:
+        logger.critical(f"OSError while proccesing group_by_operator", exc_info = True)
+        raise CriticalError from e
+
+    except Exception as e:
+        logger.critical(f"Unknown Error while proccesing group_by_operator", exc_info = True)
+        raise CriticalError from e
         
 
 if __name__ == "__main__":
-    logger.info("Starting...")
     try:
-        download_data()
         main()
     
-    except IOError:
-        logger.critical(f"Check access rights for file", exc_info = True)
+    except KeyboardInterrupt:
+        print("________CLOSED________")
     
