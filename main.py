@@ -1,30 +1,51 @@
 import csv, os, shutil
 import requests
+import argparse
 
 from requests.exceptions import ConnectionError, Timeout
-from collections import defaultdict
+
 from cfg import logger, SkipError, WarningError, CriticalError
+from cfg import default_filename, download_url, dir_name
+from cfg import operators_list, default_operators, inn_to_operator
 
 
-def main(filename: str = "data.csv"):
+def main(filename: str = default_filename, selected_operators: list[str] | None = None):
     try:
-        if os.path.exists("operators"):
-            shutil.rmtree("operators")
+        if os.path.exists(dir_name):
+            shutil.rmtree(dir_name)
 
+        logger.info("Downloading data")
         file = download_data(filename = filename)
-        # file = "DEF-9xx.csv"
-        all_data = []
-        test = read_data(file)
 
-        for data in test:
+        logger.info("Reading data")
+        raw_data = read_data(file)
+
+        logger.info("Parsing data")
+        all_data = []
+        for data in raw_data:
             try:
-                result = range_of_numbers(data[0], data[1], data[2], data[3], data[4])
+                inn = data[4]
+
+                if selected_operators:
+                    selected_inns = []
+
+                    for op_name in selected_operators:
+
+                        if op_name in operators_list:
+                            selected_inns.extend(operators_list[op_name])
+
+                    if inn not in selected_inns:
+                        continue
+                
+                result = range_of_numbers(data[0], data[1], data[2], data[3], data[4]) # abc/def, от, до, Название, ИНН
+                logger.debug(f"{data[0], data[1], data[2], data[3], data[4]}")
                 all_data.extend(result)
 
             except SkipError: # Продолжаем т.к. ошибка произошла в одном конкретном случае
                 logger.error(f"Error while processing data: {data[0], data[1], data[2], data[3], data[4]}", exc_info = True)
                 continue
         
+        logger.info("Grouping data")
         for data in all_data:
             try:
                 group_by_operator(data)
@@ -32,19 +53,22 @@ def main(filename: str = "data.csv"):
             except SkipError:
                 logger.error(f"Error while proccesing data: {data[0], data[1], data[2]}", exc_info = True)
                 continue
+        
+        logger.info("Editing files")
+        add_ending_to_files()
 
     except CriticalError:
         raise # Прерываем выполнение если произошла критическая ошибка
 
     finally:
+        logger.info("Deleting file")
         if os.path.exists(filename):
             os.remove(filename)
 
-def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.csv", filename: str = "data.csv") -> str | None:
+def download_data(filename: str, url: str = download_url) -> str | None:
     try:
-        # Добавляем таймаут для избежания долгого ожидания
         req = requests.get(url, timeout=10)
-        req.raise_for_status()  # Проверяем HTTP статус (4xx, 5xx ошибки)
+        req.raise_for_status()
 
         with open(filename, "wb") as file:
             file.write(req.content)
@@ -53,14 +77,26 @@ def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.
 
     except ConnectionError as e:
         if os.path.exists("DEF-9xx.csv"):
+            logger.critical(f"ConnectionError {e} returning DEF-9xx.csv")
             return "DEF-9xx.csv"
+        
+        elif os.path.exists(filename):
+            logger.critical(f"ConnectionError {e} returning {filename}")
+            return filename    
+
         else:
             logger.critical(f"ConnectionError {e}")
             raise CriticalError from e
     
     except Timeout as e:
         if os.path.exists("DEF-9xx.csv"):
+            logger.critical(f"ConnectionError {e} returning DEF-9xx.csv")
             return "DEF-9xx.csv"
+        
+        elif os.path.exists(filename):
+            logger.critical(f"ConnectionError {e} returning {filename}")
+            return filename  
+        
         else:
             logger.critical(f"TimeoutError {e}")
             raise CriticalError from e
@@ -72,7 +108,6 @@ def download_data(url: str = "https://opendata.digital.gov.ru/downloads/DEF-9xx.
 def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]):
     try:
         with open(path, 'r', encoding="utf-8-sig") as file:
-            logger.info("Reading data from file")
             # Отмечаем нужные столбцы, по дефолту: abc/ def, от, до, оператор, ИНН [0, 1, 2, 4, 7]
             reader = csv.reader(file, delimiter = ";")
             next(reader)
@@ -137,8 +172,10 @@ def range_of_numbers(def_code: str, start_input: str, end_input: str, operator_n
                 logger.debug(f"{start_current=} {end_current=}")
                 if start_current == end_current:
                     pattern = current_common + start_current + 'X' * len(s_rest[1:])
+
                 else:
                     pattern = current_common + f"[{start_current}-{end_current}]" + 'X' * len(s_rest[1:])
+
                 patterns.append(pattern)
                 logger.debug(f"After checking X {patterns=}")
             
@@ -197,59 +234,46 @@ def clean_filename(filename: str) -> str:
         logger.critical(f"Unknown Error while proccesing clean_filename", exc_info = True)
         raise CriticalError
 
-def group_by_operator(data: list, output_dir_name: str = "operators") -> None:
+def group_by_operator(data: list, output_dir_name: str = dir_name) -> None:
     try:
         os.makedirs(output_dir_name, exist_ok=True)
 
-        grouped = defaultdict(list)
         pattern, operator, inn = str(data[0]), str(data[1]), str(data[2])
         
         logger.debug(f"{data=}")
         logger.debug(f"{pattern=}, {operator=}, {inn=}")
-        if len(data) != 3: # Если данных меньше чем 3 (паттерн, оператор, ИНН)
+        if len(data) != 3:
             logger.warning(f"Пропущены некорректные данные: {data}")
-            return None
+            raise SkipError
         
-        if not pattern.startswith("_[78]"): # Если паттерн неккоректно обработан и начинается не с _[78]
+        if not pattern.startswith("_[78]"):
             logger.warning(f"Пропущен некорректный шаблон: {pattern=}")
-            return None
+            raise SkipError
 
-        if not operator or len(operator.strip()) < 2: # Слишком короткое имя оператора 
+        if not operator or len(operator.strip()) < 2:
             logger.warning(f"Пропущено некорректное имя оператора: {operator=}")
-            return None
+            raise SkipError
 
         if len(inn) < 10 or len(inn) > 10:
-            logger.warning(f"Пропущено неккоректный ИНН оператора: {inn=}")
-            return None
+            logger.warning(f"Пропущен неккоректный ИНН оператора: {inn=}")
+            raise SkipError
+        
+        operator_key = inn_to_operator.get(inn) # Получаем инн оператора для фильтрации
+        
+        if not operator_key:
+            logger.warning(f"Не найден ключ для оператора: {operator}")
+            raise SkipError
+
+        filename = f"{operator_key}_codes.conf"
+        filepath = os.path.join(output_dir_name, filename)
+        
+        write_header = not os.path.exists(filepath)
+        
+        with open(filepath, 'a', encoding='utf-8') as f:
+            if write_header:
+                f.write(f"[{operator_key}_codes]\n")
             
-        grouped[inn].append({
-            "pattern": pattern,
-            "operator": operator
-        })
-        logger.debug(f"Final grouping {grouped=}")
-
-        for inn, patterns_data in grouped.items():
-            operator_name = patterns_data[0]['operator']
-
-            try:
-                filename = f"{clean_filename(operator_name)}.conf"
-
-            except WarningError:
-                filename = f"{inn}.conf"
-            
-            except CriticalError: 
-                raise
-            
-            else:
-                filepath = os.path.join(output_dir_name, filename)
-                logger.debug(f"{filepath=} ___ {filename=}")    
-
-                patterns = [item['pattern'] for item in patterns_data]
-    
-                with open(filepath, 'a', encoding='utf-8') as f:
-                    for pattern in patterns:
-                        logger.debug(f'Writing {pattern=} in {filename}')
-                        f.write(f"exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n")
+            f.write(f"exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n")
 
     except IndexError as e:
         logger.warning(f"IndexError while proccesing group_by_operator")
@@ -270,12 +294,49 @@ def group_by_operator(data: list, output_dir_name: str = "operators") -> None:
     except Exception as e:
         logger.critical(f"Unknown Error while proccesing group_by_operator", exc_info = True)
         raise CriticalError from e
-        
+    
+def add_ending_to_files(output_dir_name: str = dir_name) -> None:
+    try:
+
+        for filename in os.listdir(output_dir_name):
+
+            if filename.endswith("_codes.conf"):
+                filepath = os.path.join(output_dir_name, filename)
+
+                with open(filepath, 'a', encoding='utf-8') as f:
+                    f.write("exten = _XXXX!,1,Return()\n")
+                    f.write("exten = _XXXX!,2,Hangup()\n")
+
+    except Exception as e:
+        logger.error(f"Error adding ending to files: {e}")
+
 
 if __name__ == "__main__":
     try:
-        main()
+        parser = argparse.ArgumentParser(description = 'Generate phone number ranges for specific operators')
+        parser.add_argument(
+            '--names', 
+            nargs = '+', 
+            help = 'List of operators to Parse (--names mts megafon beeline)'
+        )
+        args = parser.parse_args()
+        
+        if args.names: # Вызов с флагом --names
+            selected_operators = []
+
+            for name in args.names:
+                if name in operators_list:
+                    selected_operators.append(name)
+
+                else:
+                    print(f"Warning: Operator {name} not found in operators_list")
+
+        else: # Дефолтный вызов
+            selected_operators = default_operators.copy()
+                
+            print(f"Generating for default operators: {', '.join(default_operators)}")
+        
+        main(selected_operators = selected_operators)
     
     except KeyboardInterrupt:
         print("________CLOSED________")
-    

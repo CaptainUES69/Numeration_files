@@ -1,9 +1,7 @@
 import unittest
 
-import tempfile, os, csv, shutil
+import tempfile, os, csv
 from main import read_data, clean_filename, range_of_numbers, group_by_operator
-
-from cfg import SkipError
 
 
 class TestMain(unittest.TestCase):
@@ -71,11 +69,11 @@ class TestMain(unittest.TestCase):
     def test_group_by_operator(self):
         # arrange
         test_data = [
-            ['_[78]9337704444', 'ООО "ТЕСТ 1"', '1111111111'],
-            ['_[78]9337704343', 'ООО "ТЕСТ 2"', '2222222222'],
-            ['_[78]9337704XXX', 'ООО "ТЕСТ 2"', '2222222222'],
-            ['_[78]93377[6-7]XXXX', 'ООО "ТЕСТ 3"', '3333333333'],
-            ['_[78]933820555', 'ООО "ТЕСТ 3"', '3333333333']
+            ['_[78]9337704444', 'ООО "ТЕСТ 1"', '7740000076'],
+            ['_[78]9337704343', 'ООО "ТЕСТ 2"', '7740000076'],
+            ['_[78]9337704XXX', 'ООО "ТЕСТ 2"', '7740000076'],
+            ['_[78]93377[6-7]XXXX', 'ООО "ТЕСТ 3"', '7713076301'],
+            ['_[78]933820555', 'ООО "ТЕСТ 3"', '7713076301']
         ]
     
         expected = ['_[78]93377[6-7]XXXX', '_[78]933820555']
@@ -88,11 +86,11 @@ class TestMain(unittest.TestCase):
             content: str
             files = os.listdir(temp_dir)
 
-            with open(os.path.join(temp_dir, 'ООО_ТЕСТ_3.conf'), 'r') as f:
+            with open(os.path.join(temp_dir, 'beeline_codes.conf'), 'r') as f:
                 content = f.read()
                 for i in expected:
                     self.assertIn(i, content)
 
             # assert
-            self.assertEqual(len(files), 3)
-            self.assertEqual(['ООО_ТЕСТ_1.conf', 'ООО_ТЕСТ_2.conf', 'ООО_ТЕСТ_3.conf'], files, msg = f"Названия файлов не соответствуют нужным")
+            self.assertEqual(len(files), 2)
+            self.assertEqual(['beeline_codes.conf', 'mts_codes.conf'], files, msg = f"Названия файлов не соответствуют нужным")
