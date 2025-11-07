@@ -5,19 +5,19 @@ import argparse
 from requests.exceptions import ConnectionError, Timeout
 
 from cfg import logger, SkipError, WarningError, CriticalError
-from cfg import default_filename, download_url, dir_name
+from cfg import DEFAULT_FILENAME, DOWNLOAD_URL, OUTPUT_DIR_NAME
 from cfg import operators_list, default_operators, inn_to_operator
 
-from cfg import gitea_url, owner, repo, token
+from cfg import GITEA_URL, OWNER, REPO, TOKEN
 import base64
 
 from datetime import datetime, timezone
 import json
 
-def main(filename: str = default_filename, selected_operators: list[str] | None = None):
+def main(filename: str = DEFAULT_FILENAME, selected_operators: list[str] | None = None):
     try:
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
+        if os.path.exists(OUTPUT_DIR_NAME):
+            shutil.rmtree(OUTPUT_DIR_NAME)
 
         logger.info('Downloading data')
         file = download_data(filename = filename)
@@ -70,7 +70,7 @@ def main(filename: str = default_filename, selected_operators: list[str] | None 
         if os.path.exists(filename):
             os.remove(filename)
 
-def download_data(filename: str, url: str = download_url) -> str | None:
+def download_data(filename: str, url: str = DOWNLOAD_URL) -> str | None:
     try:
         req = requests.get(url, timeout = 10)
         req.raise_for_status()
@@ -239,7 +239,7 @@ def clean_filename(filename: str) -> str:
         logger.critical(f'Unknown Error while proccesing clean_filename', exc_info = True)
         raise CriticalError
 
-def group_by_operator(data: list, output_dir_name: str = dir_name) -> None:
+def group_by_operator(data: list, output_dir_name: str = OUTPUT_DIR_NAME) -> None:
     try:
         os.makedirs(output_dir_name, exist_ok=True)
 
@@ -300,7 +300,7 @@ def group_by_operator(data: list, output_dir_name: str = dir_name) -> None:
         logger.critical(f'Unknown Error while proccesing group_by_operator', exc_info = True)
         raise CriticalError from e
     
-def add_ending_to_files(output_dir_name: str = dir_name) -> None:
+def add_ending_to_files(output_dir_name: str = OUTPUT_DIR_NAME) -> None:
     try:
 
         for filename in os.listdir(output_dir_name):
@@ -448,10 +448,10 @@ if __name__ == '__main__':
 
         current_time = datetime.now(timezone.utc).isoformat()
         upload_multiple_files_to_gitea(
-            gitea_url,
-            token,
-            owner,
-            repo,
+            GITEA_URL,
+            TOKEN,
+            OWNER,
+            REPO,
             dates = {
                 "author": current_time,
                 "committer": current_time

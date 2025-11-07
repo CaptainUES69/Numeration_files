@@ -1,5 +1,10 @@
-import logging
+from dotenv import load_dotenv
+
+import logging, os
 from logging.handlers import RotatingFileHandler
+
+
+load_dotenv()
 
 # Ошибки для удобного отлова
 class CriticalError(BaseException):
@@ -12,22 +17,22 @@ class SkipError(BaseException):
     ...
 
 # Переменные для gitea
-gitea_url = 'https://gitea.com/'
-owner = 'CaptainUES69'
-repo = 'test'
-token = 'abab21eb4af6ee297aa437c1dd06c53eb1b4b380'
+GITEA_URL : str = 'https://gitea.com'
+OWNER : str = ''
+REPO : str = ''
+TOKEN : str = os.getenv('TOKEN')
 
 # Переменные для скачивания csv с операторами
-download_url : str = 'https://opendata.digital.gov.ru/downloads/DEF-9xx.csv'
-default_filename : str = 'data.csv'
-dir_name : str = 'operators'
+DOWNLOAD_URL : str = 'https://opendata.digital.gov.ru/downloads/DEF-9xx.csv'
+DEFAULT_FILENAME : str = 'DEF-9xx.csv'
+OUTPUT_DIR_NAME : str = 'operators'
 
 # Настройки Логгера
 logger = logging.getLogger("App")
 logger.level = logging.INFO # Уровень логирования
 
 handler = RotatingFileHandler(
-    filename = f'app.log',
+    filename = 'app.log',
     maxBytes = 5 * 1024 * 1024,
     backupCount = 5,
     encoding = 'utf-8'
