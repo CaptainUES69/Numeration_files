@@ -1,8 +1,11 @@
+import csv
+import os
+import tempfile
 import unittest
 from unittest import mock
 
-import tempfile, os, csv
-from main import read_data, clean_filename, range_of_numbers, group_by_operator, add_ending_to_files, upload_multiple_files_to_gitea
+from main import (add_ending_to_files, clean_filename, group_by_operator,
+                  range_of_numbers, read_data, upload_multiple_files_to_gitea)
 
 
 class TestMain(unittest.TestCase):
