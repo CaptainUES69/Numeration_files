@@ -3,11 +3,9 @@ import base64
 import csv
 import json
 import os
-import re
 import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
-from io import TextIOWrapper
 from typing import Any, Generator
 
 import requests
@@ -17,9 +15,10 @@ from cfg import (DEFAULT_FILENAME, DOWNLOAD_URL, GITEA_URL, OUTPUT_DIR_NAME,
                  OWNER, REPO, TOKEN, CriticalError, PatternLine, RowData,
                  SkipError, WarningError, get_default_operators,
                  inn_to_operator, logger)
+from optimized import optimize_config_file
 
 
-def main(selected_operators: list[str], filename: str = DEFAULT_FILENAME):
+def main(selected_operators: list[str], filename: str = DEFAULT_FILENAME, optimization_lvl: int = 2):
     try:
         if os.path.exists(OUTPUT_DIR_NAME):
             shutil.rmtree(OUTPUT_DIR_NAME)
@@ -42,6 +41,10 @@ def main(selected_operators: list[str], filename: str = DEFAULT_FILENAME):
 
         logger.info('Editing and writing in files')
         write_operator_config(grouped_data)
+
+        logger.info('Optimizing lines')
+        for file in os.listdir(OUTPUT_DIR_NAME):
+            optimize_config_file(optimization_lvl, f'{OUTPUT_DIR_NAME}/{file}', f'{file}')
 
         logger.info('Upload data into gitea')
         current_time = datetime.now(timezone.utc).isoformat()
@@ -111,27 +114,20 @@ def parsing_rows(raw_data: Generator[list[str], Any, None]) -> list[PatternLine]
     selected_inns = []
     operators_names = default_operators.keys()
 
-    logger.debug(f'{default_operators.keys()}')
     for op_name in selected_operators:
 
-        logger.debug(f'{op_name=}')
         if op_name in operators_names:
-            logger.debug(f'in opers: {op_name=}')
             selected_inns.append(default_operators.get(op_name))
 
-    logger.debug(f'{selected_inns=}')
     for row in raw_data:
         
-        logger.debug(f'{row[4]=}')
         if row[4] not in selected_inns:
             continue
 
-        logger.debug(f'Row data: {row}')
         current_row = RowData(row[0], row[1], row[2], row[3], row[4])
         
         try:
             result = range_of_numbers(current_row)
-            logger.debug(f'Row data: {current_row}')
             for i in result:
                 all_data.append(i)
 
@@ -141,6 +137,7 @@ def parsing_rows(raw_data: Generator[list[str], Any, None]) -> list[PatternLine]
                 exc_info = True,
             )
             continue
+    logger.debug(f"{all_data=}")
     
     return all_data
 
@@ -270,7 +267,13 @@ def write_operator_config(grouped_lines: dict[str: str]) -> None:
             f.write("exten = _XXXX!,2,Hangup()\n")
 
 
-def upload_multiple_files_to_gitea(gitea_url: str, token: str, owner: str, repo: str, branch: str = "main", **optional_params) -> None:
+def upload_multiple_files_to_gitea(
+        gitea_url: str, 
+        token: str, 
+        owner: str, 
+        repo: str, 
+        branch: str = "main", 
+        **optional_params) -> None:
     """
     **optional_params: Дополнительные параметры для API:
         - author: dict with name and email
@@ -329,7 +332,7 @@ def upload_multiple_files_to_gitea(gitea_url: str, token: str, owner: str, repo:
             files_data.append(file_info)
 
         if not files_data:
-            logger.warning("No files to upload")
+            logger.warning("No files to upload (maybe you don`t write data into .env check file)")
             raise WarningError
 
         data = {
@@ -373,7 +376,6 @@ def upload_multiple_files_to_gitea(gitea_url: str, token: str, owner: str, repo:
         raise CriticalError from e
 
 
-
 if __name__ == "__main__":
     try:
         default_operators = get_default_operators()
@@ -383,7 +385,7 @@ if __name__ == "__main__":
         parser.add_argument(
             "--names",
             nargs = "+",
-            help = "List of operators to Parse (--names mts megafon beeline)",
+            help = "list of operators to Parse (--names mts megafon beeline)",
         )
         args = parser.parse_args()
 
@@ -401,10 +403,10 @@ if __name__ == "__main__":
 
         else:  # Дефолтный вызов
             selected_operators: list[str] = default_operators.keys()
-
             print(f"Generating for default operators: {', '.join(default_operators.keys())}")
 
         main(selected_operators = selected_operators)
+        print("________DONE________")
 
     except KeyboardInterrupt:
         print("________CLOSED________")
@@ -415,3 +417,4 @@ if __name__ == "__main__":
 
     except WarningError as e:
         logger.warning(f"Warning error: {e}", exc_info = True)
+        print("________WARNING________")

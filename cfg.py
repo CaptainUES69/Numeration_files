@@ -53,10 +53,26 @@ class RowData:
     inn: int
 
 @dataclass
-class PatternLine():
+class PatternLine:
     pattern: str
     operator_name: str
     inn: str
+
+@dataclass
+class Pattern:
+    prefix: str
+    mask: list[str]
+
+    def to_string(self) -> str:
+        pattern_str = self.prefix + ''.join(self.mask)
+        return f'exten = _[78]{pattern_str},1,GoSub(${{ARG1}},${{EXTEN}},1)'
+
+@dataclass
+class PatternItem:
+    original: str
+    digit_part: str
+    x_count: int
+    pattern_body: str
 
 
 def get_default_operators() -> dict[str]:
