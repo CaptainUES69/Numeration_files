@@ -1,31 +1,24 @@
-import os
 import re
 from collections import defaultdict
 
-from cfg import OUTPUT_DIR_NAME, Pattern, PatternItem, logger
+from cfg import Pattern, PatternItem, logger
 
 
-def optimize_config_file(optimization_lvl: int, input_file: str, output_file: str, output_dir: str = OUTPUT_DIR_NAME) -> None:
-    logger.info(f"Starting optimization for file: {input_file}\n")
-    with open(input_file, 'r', encoding='utf-8') as f:
-        lines = [line.strip() for line in f if line.strip()]
+def optimize_patterns_in_memory(patterns: list[str], optimization_lvl: int) -> list[str]:
+    logger.info(f"Starting in-memory optimization for {len(patterns)} patterns")
+    
+    optimized_lines = patterns
+    for i in range(optimization_lvl):
+        logger.debug(f'Optimization cycle: {i}')
+        optimized_lines = optimize_patterns(optimized_lines)
+        optimized_lines = compress_sequential_patterns(optimized_lines)
+        optimized_lines = sort_lines_by_def_code(optimized_lines)
+        optimized_lines = merge_adjacent_ranges(optimized_lines)
 
-        optimized_lines = lines
-        for i in range(0, optimization_lvl):
-            logger.debug(f'Cicle number: {i}')
-            optimized_lines = optimize_patterns(optimized_lines)
-            optimized_lines = compress_sequential_patterns(optimized_lines)
-            optimized_lines = sort_lines_by_def_code(optimized_lines)
-            optimized_lines = merge_adjacent_ranges(optimized_lines)
-
-    logger.info(f'Sort and write lines for file: {output_file}')
+    logger.info(f'Final sorting of {len(optimized_lines)} lines')
     optimized_lines = sort_lines_by_def_code(optimized_lines)
-
-    os.makedirs(output_dir, exist_ok = True)
-    output_path = f'{output_dir}/{output_file}'
-    with open(output_path, 'w', encoding='utf-8') as f:
-        for line in optimized_lines:
-            f.write(line + '\n')
+    
+    return optimized_lines
 
 
 def optimize_patterns(patterns: list[str]) -> list[str]:

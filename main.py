@@ -11,40 +11,47 @@ from typing import Any, Generator
 import requests
 from requests.exceptions import ConnectionError, Timeout
 
-from cfg import (DEFAULT_FILENAME, DOWNLOAD_URL, GITEA_URL, OUTPUT_DIR_NAME,
-                 OWNER, REPO, TOKEN, CriticalError, PatternLine, RowData,
-                 SkipError, WarningError, get_default_operators,
-                 inn_to_operator, logger)
-from optimized import optimize_config_file
+from cfg import (
+    DEFAULT_FILENAME, 
+    DOWNLOAD_URL, 
+    GITEA_URL, 
+    OUTPUT_DIR_NAME,
+    OWNER, 
+    REPO, 
+    TOKEN, 
+    CriticalError, SkipError, WarningError,
+    PatternLine, RowData,
+    get_default_operators, get_operator_to_inn, 
+    logger
+)
+from optimized import optimize_patterns_in_memory
 
 
 def main(selected_operators: list[str], filename: str = DEFAULT_FILENAME, optimization_lvl: int = 2):
     try:
         if os.path.exists(OUTPUT_DIR_NAME):
             shutil.rmtree(OUTPUT_DIR_NAME)
-        
-        if selected_operators == None:
-            logger.error('Selected_operators = None')
-            raise CriticalError
 
         logger.info(f'Downloading file: {filename} from: {DOWNLOAD_URL}')
         file = download_file(filename = filename)
 
         logger.info(f'Reading file: {filename}')
-        raw_data = read_data(file)
+        raw_data = read_csv_file(file)
 
         logger.info('Parsing lines from raw_data')
-        all_data = parsing_rows(raw_data)
+        all_data = parsing_rows(raw_data, selected_operators)
   
         logger.info('Grouping all lines')
         grouped_data = grouping_lines(all_data)
 
-        logger.info('Editing and writing in files')
-        write_operator_config(grouped_data)
-
         logger.info('Optimizing lines')
-        for file in os.listdir(OUTPUT_DIR_NAME):
-            optimize_config_file(optimization_lvl, f'{OUTPUT_DIR_NAME}/{file}', f'{file}')
+        optimized_grouped_data = {}
+        for operator, patterns in grouped_data.items():
+            optimized_patterns = optimize_patterns_in_memory(patterns, optimization_lvl)
+            optimized_grouped_data[operator] = optimized_patterns
+
+        logger.info('Editing and writing in files')
+        write_operator_config(optimized_grouped_data)
 
         logger.info('Upload data into gitea')
         current_time = datetime.now(timezone.utc).isoformat()
@@ -95,7 +102,7 @@ def download_file(filename: str, url: str = DOWNLOAD_URL) -> str | None:
         raise CriticalError from e
 
 
-def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]) -> Generator[list[str], Any, None]:
+def read_csv_file(path: str, columns: list[int] = [0, 1, 2, 4, 7]) -> Generator[list[str], Any, None]:
     try:
         with open(path, "r", encoding = "utf-8-sig") as file:
             reader = csv.reader(file, delimiter=";")
@@ -109,7 +116,7 @@ def read_data(path: str, columns: list[int] = [0, 1, 2, 4, 7]) -> Generator[list
         raise CriticalError from e
 
 
-def parsing_rows(raw_data: Generator[list[str], Any, None]) -> list[PatternLine]:
+def parsing_rows(raw_data: Generator[list[str], Any, None], selected_operators: list[str]) -> list[PatternLine]:
     all_data = []
     selected_inns = []
     operators_names = default_operators.keys()
@@ -238,30 +245,34 @@ def range_of_numbers(current_row: RowData) -> list[PatternLine]:
 def grouping_lines(all_lines: list[PatternLine]) -> dict[str: list[str]]:
     grouped = defaultdict(list)
     for line in all_lines: 
-        operator_key: str = inn_to_operator.get(line.inn)
+        operator_key: str = get_operator_to_inn(line.inn)
 
         if not operator_key:
             logger.debug(f'Не найден ключ для оператора: {line.operator_name}')
             continue
         
-        grouped[operator_key].append(line.pattern)
+        grouped[operator_key].append(f'exten = {line.pattern},1,GoSub')
 
     return dict(grouped)
 
 
-def write_operator_config(grouped_lines: dict[str: str]) -> None:
+def write_operator_config(grouped_lines: dict[str: list[str]]) -> None:
     os.makedirs(OUTPUT_DIR_NAME, exist_ok = True)
 
-    for operator in grouped_lines.keys():
-        filepath = f'{os.path.join(OUTPUT_DIR_NAME, f'{operator}_conf.cfg')}'
+    for operator, patterns in grouped_lines.items():
+        filepath = os.path.join(OUTPUT_DIR_NAME, f'{operator}_conf.cfg')
         write_header = not os.path.exists(filepath)
 
-        with open(filepath, 'a', encoding = 'utf-8-sig') as f:
+        with open(filepath, 'w', encoding = 'utf-8-sig') as f:
             if write_header:
                 f.write(f"[{operator}_codes]\n")
 
-            for pattern in grouped_lines.get(operator):
-                f.write(f'exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n')
+            for pattern in patterns:
+                if pattern.startswith('exten = '):
+                    f.write(f'{pattern}\n')
+
+                else:
+                    f.write(f'exten = {pattern},1,GoSub(${{ARG1}},${{EXTEN}},1)\n')
 
             f.write("exten = _XXXX!,1,Return()\n")
             f.write("exten = _XXXX!,2,Hangup()\n")
@@ -332,7 +343,7 @@ def upload_multiple_files_to_gitea(
             files_data.append(file_info)
 
         if not files_data:
-            logger.warning("No files to upload (maybe you don`t write data into .env check file)")
+            logger.warning("No files to upload")
             raise WarningError
 
         data = {
@@ -404,6 +415,10 @@ if __name__ == "__main__":
         else:  # Дефолтный вызов
             selected_operators: list[str] = default_operators.keys()
             print(f"Generating for default operators: {', '.join(default_operators.keys())}")
+
+        # if not GITEA_URL or not OWNER or not TOKEN or not REPO:
+        #     logger.warning(f'Maybe you don`t write .env file {GITEA_URL=} {OWNER=} {TOKEN=} {REPO=}')
+        #     raise WarningError
 
         main(selected_operators = selected_operators)
         print("________DONE________")

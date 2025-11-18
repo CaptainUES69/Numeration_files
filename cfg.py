@@ -82,11 +82,15 @@ def get_default_operators() -> dict[str]:
         'mts': '7740000076',
         'tele2': '7743895280',
         'rostelecom': '7707049388',
-        'yota': '7840467957',
+        'yota': '7701725181',
     }
     return default_operators
 
-inn_to_operator = {}
-for operator_name, inn in get_default_operators().items():
-    logger.debug(f"{inn_to_operator=}")
-    inn_to_operator[inn] = operator_name
+
+def get_operator_to_inn(inn: str) -> str:
+    operators = get_default_operators()
+    reverse_mapping = {inn: name for name, inn in operators.items()}
+    
+    operator_name = reverse_mapping.get(inn)
+    return operator_name
+    
