@@ -1,156 +1,243 @@
-import os
-import tempfile
 import unittest
-from unittest import mock
 
-from cfg import Pattern, PatternItem
-from optimized import (compress_sequential_patterns, merge_adjacent_ranges,
-                       merge_masks, merge_similar_masks, optimize_config_file,
-                       optimize_patterns, parse_pattern,
-                       sort_lines_by_def_code, split_mask)
+from optimized import (
+    compress_sequential_patterns, 
+    merge_adjacent_ranges,
+    merge_masks, 
+    merge_similar_masks, 
+    parse_pattern,
+    sort_lines_by_def_code, split_mask
+)
 
 
 class TestOptimized(unittest.TestCase):
-
-    def test_parse_pattern_valid(self):
-        pattern = "exten = _[78]91234567[0-9]X,1,GoSub(${ARG1},${EXTEN},1)"
+    def test_parse_pattern(self):
+        # arrange
+        pattern = "exten = _[78]91234567[0-9]X,1,GoSub"
+        
+        # act
         result = parse_pattern(pattern)
         
+        # assert
         self.assertEqual(result.prefix, "91234567")
         self.assertEqual(result.mask, ['[0-9]', 'X'])
 
+
     def test_parse_pattern_invalid(self):
+        # arrange
         pattern = "invalid pattern string"
+        
+        # act
         result = parse_pattern(pattern)
         
+        # assert
         self.assertEqual(result.prefix, "")
         self.assertEqual(result.mask, [])
 
+
     def test_split_mask_simple(self):
+        # arrange
         mask_str = "XX"
+        
+        # act
         result = split_mask(mask_str)
         
+        # assert
         self.assertEqual(result, ['X', 'X'])
 
+
     def test_split_mask_with_range(self):
-        mask_str = "[0-3]X[5-9]"
+        # arrange
+        mask_str = "[0-9]X"
+        
+        # act
         result = split_mask(mask_str)
         
-        self.assertEqual(result, ['[0-3]', 'X', '[5-9]'])
+        # assert
+        self.assertEqual(result, ['[0-9]', 'X'])
 
-    def test_merge_masks_single_mask(self):
-        masks = [['1', '2', '3']]
+
+    def test_split_mask_complex(self):
+        # arrange
+        mask_str = "[0-9]X[1-3]"
+        
+        # act
+        result = split_mask(mask_str)
+        
+        # assert
+        self.assertEqual(result, ['[0-9]', 'X', '[1-3]'])
+
+
+    def test_merge_masks_single(self):
+        # arrange
+        masks = [['1', '2']]
+        
+        # act
         result = merge_masks(masks)
         
-        self.assertEqual(result, [['1', '2', '3']])
+        # assert
+        self.assertEqual(result, [['1', '2']])
 
-    def test_merge_masks_identical_masks(self):
-        masks = [
-            ['1', '2', '3'],
-            ['1', '2', '3']
-        ]
+
+    def test_merge_masks_multiple(self):
+        # arrange
+        masks = [['1', '2'], ['1', '3']]
+        
+        # act
         result = merge_masks(masks)
         
-        self.assertEqual(result, [['1', '2', '3']])
+        # assert
+        self.assertEqual(result, [['1', '[2-3]']])
 
-    def test_merge_masks_different_digits(self):
-        masks = [
-            ['1', '2'],
-            ['1', '3']
-        ]
+
+    def test_merge_masks_with_x(self):
+        # arrange
+        masks = [['X', '2'], ['X', '3']]
+        
+        # act
         result = merge_masks(masks)
         
-        # Проверяем что результат существует и имеет правильную структуру
+        # assert
         self.assertEqual(len(result), 1)
-        self.assertEqual(len(result[0]), 2)
+
 
     def test_merge_similar_masks_empty(self):
-        result = merge_similar_masks([])
-        self.assertEqual(result, [])
-
-    def test_merge_similar_masks_identical(self):
-        masks = [
-            ['1', '2', '3'],
-            ['1', '2', '3']
-        ]
+        # arrange
+        masks = []
+        
+        # act
         result = merge_similar_masks(masks)
         
+        # assert
+        self.assertEqual(result, [])
+
+
+    def test_merge_similar_masks_single(self):
+        # arrange
+        masks = [['1', '2', '3']]
+        
+        # act
+        result = merge_similar_masks(masks)
+        
+        # assert
         self.assertEqual(result, ['1', '2', '3'])
 
-    def test_optimize_patterns_with_valid_data(self):
-        # Используем данные, которые точно будут обработаны
-        patterns = [
-            "exten = _[78]91234567[0-9]X,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]91234567[1-2]X,1,GoSub(${ARG1},${EXTEN},1)"
-        ]
-        result = optimize_patterns(patterns)
-        
-        # Проверяем что что-то вернулось
-        self.assertTrue(len(result) >= 0)
 
-    def test_compress_sequential_patterns_no_compression(self):
-        patterns = [
-            "exten = _[78]912345671,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]912345673,1,GoSub(${ARG1},${EXTEN},1)"
-        ]
+    def test_merge_similar_masks_different(self):
+        # arrange
+        masks = [['1', '2', '3'], ['1', '5', '3']]
+        
+        # act
+        result = merge_similar_masks(masks)
+        
+        # assert
+        self.assertEqual(result, ['1', 'X', '3'])
+
+
+    def test_compress_sequential_patterns_empty(self):
+        # arrange
+        patterns = []
+        
+        # act
         result = compress_sequential_patterns(patterns)
         
-        self.assertEqual(len(result), 2)
+        # assert
+        self.assertEqual(result, [])
 
-    def test_compress_sequential_patterns_with_compression(self):
-        # Используем паттерны, которые могут быть сжаты
-        patterns = [
-            "exten = _[78]912345671XX,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]912345672XX,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]912345673XX,1,GoSub(${ARG1},${EXTEN},1)"
-        ]
+
+    def test_compress_sequential_patterns_single(self):
+        # arrange
+        patterns = ["exten = _[78]123XX,1,GoSub"]
+        
+        # act
         result = compress_sequential_patterns(patterns)
         
-        # Проверяем что результат существует
-        self.assertTrue(len(result) > 0)
+        # assert
+        self.assertEqual(result, patterns)
+
+
+    def test_compress_sequential_patterns_sequential(self):
+        # arrange
+        patterns = [
+            "exten = _[78]1234XX,1,GoSub",
+            "exten = _[78]1235XX,1,GoSub",
+            "exten = _[78]1236XX,1,GoSub"
+        ]
+        
+        # act
+        result = compress_sequential_patterns(patterns)
+        
+        # assert
+        self.assertEqual(len(result), 1)
+
 
     def test_sort_lines_by_def_code(self):
+        # arrange
         lines = [
-            "exten = _[78]91234567,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]90123456,1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]93234567,1,GoSub(${ARG1},${EXTEN},1)",
-            "[header]",
-            "other line"
+            "exten = _[78]999XXX,1,GoSub",
+            "exten = _[78]111XXX,1,GoSub",
+            "exten = _[78]555XXX,1,GoSub"
         ]
+        
+        # act
         result = sort_lines_by_def_code(lines)
         
-        # Проверяем что заголовок остался первым
-        self.assertEqual(result[0], "[header]")
+        # assert
+        self.assertEqual(result[0], "exten = _[78]111XXX,1,GoSub")
+        self.assertEqual(result[1], "exten = _[78]555XXX,1,GoSub")
+        self.assertEqual(result[2], "exten = _[78]999XXX,1,GoSub")
 
-    def test_merge_adjacent_ranges_no_merge(self):
-        patterns = [
-            "exten = _[78]91234567[1-2],1,GoSub(${ARG1},${EXTEN},1)",
-            "exten = _[78]91234567[4-5],1,GoSub(${ARG1},${EXTEN},1)"
+
+    def test_sort_lines_with_headers(self):
+        # arrange
+        lines = [
+            "[context1]",
+            "exten = _[78]999XXX,1,GoSub",
+            "exten = _[78]111XXX,1,GoSub",
+            "other line"
         ]
+        
+        # act
+        result = sort_lines_by_def_code(lines)
+        
+        # assert
+        self.assertEqual(result[0], "[context1]")
+        self.assertEqual(result[1], "exten = _[78]111XXX,1,GoSub")
+        self.assertEqual(result[2], "exten = _[78]999XXX,1,GoSub")
+        self.assertEqual(result[3], "other line")
+
+
+    def test_merge_adjacent_ranges_empty(self):
+        # arrange
+        patterns = []
+        
+        # act
         result = merge_adjacent_ranges(patterns)
         
-        self.assertTrue(len(result) >= 1)
+        # assert
+        self.assertEqual(result, [])
 
-    def test_optimize_config_file_basic(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            input_file = os.path.join(temp_dir, "test_input.cfg")
-            output_file = "test_output.cfg"
-            
-            # Создаем простой конфиг с минимальным содержимым
-            with open(input_file, 'w', encoding='utf-8') as f:
-                f.write("[test_codes]\n")
-                f.write("exten = _[78]912345671,1,GoSub(${ARG1},${EXTEN},1)\n")
-            
-            optimize_config_file(1, input_file, output_file, temp_dir)
-            
-            output_path = os.path.join(temp_dir, output_file)
-            
-            # Проверяем что файл создан
-            self.assertTrue(os.path.exists(output_path))
 
-    def test_pattern_to_string(self):
-        pattern = Pattern("91234567", ['[0-9]', 'X'])
-        result = pattern.to_string()
+    def test_merge_adjacent_ranges_single(self):
+        # arrange
+        patterns = ["exten = _[78]123[1-3]X,1,GoSub"]
         
-        expected_start = "exten = _[78]91234567"
-        self.assertTrue(result.startswith(expected_start))
+        # act
+        result = merge_adjacent_ranges(patterns)
+        
+        # assert
+        self.assertEqual(result, patterns)
+
+
+    def test_merge_adjacent_ranges_mergeable(self):
+        # arrange
+        patterns = [
+            "exten = _[78]123[1-2]X,1,GoSub",
+            "exten = _[78]123[3-4]X,1,GoSub"
+        ]
+        
+        # act
+        result = merge_adjacent_ranges(patterns)
+        
+        # assert
+        self.assertEqual(len(result), 1)

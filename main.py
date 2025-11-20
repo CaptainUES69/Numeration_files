@@ -416,9 +416,9 @@ if __name__ == "__main__":
             selected_operators: list[str] = default_operators.keys()
             print(f"Generating for default operators: {', '.join(default_operators.keys())}")
 
-        # if not GITEA_URL or not OWNER or not TOKEN or not REPO:
-        #     logger.warning(f'Maybe you don`t write .env file {GITEA_URL=} {OWNER=} {TOKEN=} {REPO=}')
-        #     raise WarningError
+        if not GITEA_URL or not OWNER or not TOKEN or not REPO:
+            logger.warning(f'Maybe you don`t write .env file {GITEA_URL=} {OWNER=} {TOKEN=} {REPO=}')
+            raise WarningError
 
         main(selected_operators = selected_operators)
         print("________DONE________")
