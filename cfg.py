@@ -1,8 +1,9 @@
-from dotenv import load_dotenv
-
-import logging, os
+import logging
+import os
+from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -17,15 +18,15 @@ class SkipError(BaseException):
     ...
 
 # Переменные для gitea
-GITEA_URL : str = 'https://gitea.com'
-OWNER : str = ''
-REPO : str = ''
+GITEA_URL : str = os.getenv('GITEA_URL')
+OWNER : str = os.getenv('OWNER')
+REPO : str = os.getenv('REPO')
 TOKEN : str = os.getenv('TOKEN')
 
 # Переменные для скачивания csv с операторами
-DOWNLOAD_URL : str = 'https://opendata.digital.gov.ru/downloads/DEF-9xx.csv'
-DEFAULT_FILENAME : str = 'DEF-9xx.csv'
-OUTPUT_DIR_NAME : str = 'operators'
+DOWNLOAD_URL : str = os.getenv('DOWNLOAD_URL')
+DEFAULT_FILENAME : str = os.getenv('DEFAULT_FILENAME')
+OUTPUT_DIR_NAME : str = os.getenv('OUTPUT_DIR_NAME')
 
 # Настройки Логгера
 logger = logging.getLogger("App")
@@ -43,18 +44,53 @@ handler.setFormatter(formatter)
 
 logger.addHandler(handler)
 
-# Данные для операторов
-default_operators = ['megafon', 'beeline', 'mts', 'tele2', 'rostelecom', 'yota'] # Операторы вызываемые без указания флагов
-operators_list = { # Операторы которых можно вызвать флагом --name
-    'mts': ['7740000076'],
-    'megafon': ['7812014560'],
-    'beeline': ['7713076301'],
-    'tele2': ['7743895280'],
-    'rostelecom': ['7707049388'],
-    'yota': ['7840467957']
-}
+@dataclass
+class RowData:
+    def_code: int
+    start_input: int
+    end_input: int
+    operator_name: str
+    inn: int
 
-inn_to_operator = {}
-for operator_name, inn_list in operators_list.items():
-    for inn in inn_list:
-        inn_to_operator[inn] = operator_name
+@dataclass
+class PatternLine:
+    pattern: str
+    operator_name: str
+    inn: str
+
+@dataclass
+class Pattern:
+    prefix: str
+    mask: list[str]
+
+    def to_string(self) -> str:
+        pattern_str = self.prefix + ''.join(self.mask)
+        return f'exten = _[78]{pattern_str},1,GoSub(${{ARG1}},${{EXTEN}},1)'
+
+@dataclass
+class PatternItem:
+    original: str
+    digit_part: str
+    x_count: int
+    pattern_body: str
+
+
+def get_default_operators() -> dict[str]:
+    default_operators = {
+        'megafon': '7812014560',
+        'beeline': '7713076301',
+        'mts': '7740000076',
+        'tele2': '7743895280',
+        'rostelecom': '7707049388',
+        'yota': '7701725181',
+    }
+    return default_operators
+
+
+def get_operator_to_inn(inn: str) -> str:
+    operators = get_default_operators()
+    reverse_mapping = {inn: name for name, inn in operators.items()}
+    
+    operator_name = reverse_mapping.get(inn)
+    return operator_name
+    
